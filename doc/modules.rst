@@ -8,7 +8,8 @@ Introduction
 This document discusses the barebone CommonJS-based module framework
 built into Duktape:
 
-* Ecmascript modules are defined using the CommonJS module format:
+* Ecmascript modules are defined using the CommonJS module format (with
+  additional support for ``module.exports``):
 
   - http://wiki.commonjs.org/wiki/Modules/1.1.1
 
@@ -120,6 +121,13 @@ be represented by the source file::
     return a + b;
   };
 
+Replacing ``module.exports`` is also supported (although not part of CommonJS,
+it's widely supported by other module frameworks)::
+
+  module.exports = function adder(a, b) {
+    return a + b;
+  };
+
 CommonJS instructs that modules should be evaluated with certain bindings
 in force.  Duktape currently implements the CommonJS requirements by simply
 wrapping the module code inside some footer/header code::
@@ -141,10 +149,14 @@ When evaluated, the expression results in a function object (denoted ``F``)
 which is then called (more or less) like::
 
   var exports = {};
+  var module = {
+    exports: exports,   /* initial value, may be replaced by user */
+    id: 'package/lib'
+  };
   F.call(exports,                 /* exports also used as 'this' binding */
          require,                 /* require method */
          exports,                 /* exports */
-         { id: 'package/lib' });  /* module */
+         module);                 /* module */
 
 A few notes:
 
@@ -160,9 +172,29 @@ A few notes:
 
 * The third argument provides the module with its own, resolved identifier.
   The value in ``module.id`` is guaranteed to be in absolute form, and resolve
-  to the module itself if required from any other module.  Duktape doesn't
-  currently support ``module.exports`` like NodeJS, as it is not required by
-  CommonJS.
+  to the module itself if required from any other module.
+
+* As of Duktape 1.3 ``module.exports`` is defined and can be replaced with
+  an arbitrary value (e.g. a function).  Replacement can be done both in
+  ``Duktape.modSearch()`` function and in the module source code.
+
+Module caching when module loading fails
+========================================
+
+The initial "exports" table of a module is registered to ``Duktape.modLoaded``
+just before calling the wrapped module function.  This registration must be
+done before running the module function because there may be circular
+requires which require that cache entry to be present.
+
+But what should be done with the modLoaded entry if the module function
+throws an error?  CommonJS doesn't specify what to do in this situation.
+Duktape 1.2 would keep the partial module in modLoaded, so that if you
+tried to reload the module, the partial module would be returned directly.
+
+Since Duktape 1.3 the modLoaded entry will be removed on module load error
+so that it's possible to try to load the module again.  See:
+
+- ``test-commonjs-module-load-error.js``
 
 CommonJS module identifier resolution
 =====================================
@@ -211,7 +243,9 @@ which initially has the same value as ``exports``:
 
 * http://timnew.github.io/blog/2012/04/20/exports_vs_module_exports_in_node_js/
 
-Duktape doesn't currently support assignment to ``module.exports``.
+Duktape supports ``module.exports`` since Duktape 1.3, see:
+
+* ``test-commonjs-module-exports-repl.js``
 
 C modules and DLLs
 ==================
@@ -336,11 +370,6 @@ Test code::
 
 Future work
 ===========
-
-module.exports
---------------
-
-Could add support to ``module.exports``.
 
 Ability to load modules from C code
 -----------------------------------
