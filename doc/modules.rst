@@ -184,10 +184,10 @@ A few notes:
 Module caching when module loading fails
 ========================================
 
-The initial "exports" table of a module is registered to ``Duktape.modLoaded``
-just before calling the wrapped module function.  This registration must be
-done before running the module function because there may be circular
-requires which require that cache entry to be present.
+The "module" table of a module is registered to ``Duktape.modLoaded`` just
+before calling either modSearch() or the wrapped module function.  This
+registration must be done before running the module function because there
+may be circular requires which require that cache entry to be present.
 
 But what should be done with the modLoaded entry if the module function
 throws an error?  CommonJS doesn't specify what to do in this situation.
