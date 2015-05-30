@@ -51,11 +51,14 @@ resolution algorithm.
 
 A module with a certain resolved identifier is loaded only once per a global
 environment: ``Duktape.modLoaded`` keeps track of modules which are fully or
-partially loaded, mapping a resolved identifier to the module's ``exports``
+partially loaded, mapping a resolved identifier to the module's ``module``
 table.  If a required module has already been (fully or partially) loaded,
-the same ``exports`` value is returned without further action.
+``require()`` will simply return ``module.exports``.  (But note that if a
+module is still being loaded and assigns to ``module.exports``, the return
+value might be different for a later ``require()`` call.)
 
 If a module has not yet been registered to ``Duktape.modLoaded``, Duktape
+registers an initial ``module`` table to ``Duktape.modLoaded``.  It then
 calls ``Duktape.modSearch()``, a module search function which must be
 provided by the user (there is no default)::
 
@@ -101,11 +104,10 @@ and can also return a string to be used as the module Ecmascript source code::
     throw new Error('cannot find module: ' + id);
   };
 
-If the search function returns without throwing an error, the exports value
-is registered to ``Duktape.modLoaded`` before evaluating module source code
-possibly returned by the search function.  This is important so that circular
-requires are properly supported (the current barebones mechanism does not
-support circular references for C modules, though).
+The ``module`` value is registered to ``Duktape.modLoaded`` before the
+module search function is called (this was changed in Duktape 1.3), so
+that circular requires are properly supported for both Ecmascript and C
+modules.
 
 The user ``Duktape.modSearch()`` function encapsulates functionality such as
 module search paths and file I/O.  This is a nice division of labor as it
@@ -121,8 +123,9 @@ be represented by the source file::
     return a + b;
   };
 
-Replacing ``module.exports`` is also supported (although not part of CommonJS,
-it's widely supported by other module frameworks)::
+Replacing ``module.exports`` is also supported as of Duktape 1.3 (although
+``module.exports`` is not part of CommonJS, it's widely supported by other
+module frameworks)::
 
   module.exports = function adder(a, b) {
     return a + b;
@@ -162,6 +165,10 @@ A few notes:
 
 * The return value of this call is ignored.
 
+* If either modSearch() or the module code throws an error, the module is
+  de-registered from ``Duktape.modLoaded`` and the error is thrown (this
+  was changed in Duktape 1.3).
+
 * The first argument is a new function object whose underlying native function
   is the same as the global ``require()`` function.  This fresh function is
   needed to facilitate resolution of relative module identifiers: relative
@@ -173,10 +180,6 @@ A few notes:
 * The third argument provides the module with its own, resolved identifier.
   The value in ``module.id`` is guaranteed to be in absolute form, and resolve
   to the module itself if required from any other module.
-
-* As of Duktape 1.3 ``module.exports`` is defined and can be replaced with
-  an arbitrary value (e.g. a function).  Replacement can be done both in
-  ``Duktape.modSearch()`` function and in the module source code.
 
 Module caching when module loading fails
 ========================================
@@ -192,7 +195,8 @@ Duktape 1.2 would keep the partial module in modLoaded, so that if you
 tried to reload the module, the partial module would be returned directly.
 
 Since Duktape 1.3 the modLoaded entry will be removed on module load error
-so that it's possible to try to load the module again.  See:
+so that it's possible to try to load the module again.  This matches Node.js
+behavior.  See the test case:
 
 - ``test-commonjs-module-load-error.js``
 
@@ -275,11 +279,11 @@ provided by C code into the 'exports' table, and then returning the Ecmascript
 part of the module.  The Ecmascript part can access the symbols provided by C
 code through the shared 'exports' table.
 
-Limitations:
+As of Duktape 1.3, the ``module`` table is registered to ``Duktape.modLoaded``
+before the module search function is called, so that circular requires are now
+supported for C modules too.
 
-* Because the module is not yet registered into ``Duktape.modLoaded`` when the
-  module search function executes, circular requires are not handled correctly
-  for C modules.
+Limitations:
 
 * There is no automatic mechanism to know when a DLL can be unloaded from
   memory.  Tracking the reachability of the exports table of the module
@@ -388,12 +392,6 @@ imported during initialization so this should rarely matter.
 
 Better C module support
 -----------------------
-
-Several ideas to improve the C module support:
-
-* Allow C modules to participate in circular requires.  Module search and
-  C module init need to be separated for this to be possible, so that the
-  ``Duktape.modLoaded`` registration can be done in-between.
 
 * Provide a default DLL loading helper for at least POSIX and Windows.
 
